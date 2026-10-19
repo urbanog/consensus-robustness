@@ -176,27 +176,38 @@ regression test. The table above is from the re-run after the fix.
 
 ### Mutation testing: is the harness strong enough to catch broken protocols?
 
-| mutant | what is broken | caught by Hypothesis | property violated | shrunk schedule |
+| mutant | what is broken | property violated | search success, 10 independent seeds | shrunk schedule (docs) |
 |---|---|---|---|---|
-| `bft-quorum-2f` | BFT quorum 2f instead of 2f+1 (n = 4) | after 35 examples | agreement | 2 partitions, no Byzantine node |
-| `bft-quorum-2f-n7` | same with n = 7, f = 2 | after 231 | agreement | 2 equivocators, no network faults |
-| `bft-n-eq-3f` | n = 3f = 3 nodes, quorum n − f | after 92 | agreement | 1 equivocator, loss, duplication |
-| `bft-no-lock` | honest nodes ignore their lock | after 218 | agreement | 1 equivocator, 1 short partition, duplication |
-| `raft-no-log-check` | votes without the up-to-date-log check | after 19 | leader completeness | 1 partition, duplication |
-| `raft-stale-votes` | candidates count votes from old terms | after 42 | election safety | 1 crash/restart, 1 slow link, loss |
-| `raft-small-quorum` | majority n//2 (n = 4) | after 41 | election safety | loss only |
-| `raft-commit-old-term` | Figure 8 commit rule bug | after 1172 (targeted) | leader completeness | 4 leader-triggered crashes, slow link, loss |
+| `bft-quorum-2f` | BFT quorum 2f instead of 2f+1 (n = 4) | agreement | 10/10, median 13 examples | 1 equivocator, no network faults |
+| `bft-quorum-2f-n7` | same with n = 7, f = 2 | agreement | 10/10, median 59 | 2 equivocators, 1 slow link, duplication |
+| `bft-n-eq-3f` | n = 3f = 3 nodes, quorum n − f | agreement | 10/10, median 47 | 1 equivocator, no network faults |
+| `bft-no-lock` | honest nodes ignore their lock | agreement | 6/10 within 800, median 50 | 1 equivocator, GST = 51 |
+| `raft-no-log-check` | votes without the up-to-date-log check | leader completeness | 10/10, median 35 | 1 partition |
+| `raft-stale-votes` | candidates count votes from old terms | election safety | 10/10, median 206 | 1 slow link, loss, duplication |
+| `raft-small-quorum` | majority n//2 (n = 4) | election safety | 10/10, median 19 | loss only |
+| `raft-commit-old-term` | Figure 8 commit rule bug | leader completeness | 10/10, median 246 (leader-churn strategy) | 3 leader-triggered crashes |
 
-All eight are caught, and each shrunk counterexample prints as a trace of 6–41 protocol events
-(see [`docs/findings.md`](docs/findings.md)). Two observations:
+All eight are caught, and each shrunk counterexample prints as a trace of 6–33 protocol events
+(see [`docs/findings.md`](docs/findings.md)). The test-suite tries up to 4–12 fixed seeds per
+mutant with a per-seed budget chosen from these measurements. Independently of Hypothesis, the
+recorded counterexamples are replayed as data in `tests/test_mutant_regressions.py`: each must
+violate its property on the mutant and be safe on the honest protocol. Three observations:
 
-* **Hypothesis beats uniform random search here.** The 2000-seed uniform random sweep of each mutant
-  found 0 violations for `bft-no-lock` and for `raft-commit-old-term`; Hypothesis found `bft-no-lock`.
-* **The Figure 8 bug was not found with the generic fault vocabulary** (Hypothesis, 1000 examples:
-  nothing). It needs a sequence of leader changes in which each new leader replicates an old-term
-  entry only partway. It was found only after adding *leader-triggered crashes* (the k-th elected
-  leader crashes shortly after its election). Coverage depends on the fault model, not only on the
-  number of runs.
+* **A single derandomised search is luck.** The first version of this harness ran one derandomised
+  search per mutant. It passed with Hypothesis 6.170.0 and failed in CI with 6.170.2, whose
+  internal random stream differs. Measuring with independent seeds showed the problem was not only
+  the version change: the original Figure 8 search succeeded in at most 1 of 10 seeds within 4000
+  examples. Its earlier hit at 1172 examples was luck. The fix: targeted strategies, several seeds
+  with measured budgets, and version-independent replay tests.
+* **Hypothesis vs. uniform random search.** The 2000-seed uniform random sweep of each mutant found
+  0 violations for `bft-no-lock` and for `raft-commit-old-term`. Hypothesis with the untargeted
+  BFT strategy found `bft-no-lock` in 9 of 10 seeds within 4000 examples.
+* **The Figure 8 bug needs the right fault vocabulary.** It needs a sequence of leader changes in
+  which each new leader replicates an old-term entry only partway. With timed crashes and partitions
+  it is essentially never found. A *leader-churn* family (the k-th elected leader crashes 0–60 units
+  after its election and restarts 150–400 later) finds it in every seed, with a median of 246
+  examples. Coverage depends on the fault model and its distribution, not only on the number of
+  runs.
 
 Example: the shrunk `raft-small-quorum` counterexample. With n = 4 and "majority" 2, node 2 votes
 for n0 and node 3 votes for n1:
@@ -244,11 +255,11 @@ high-loss cells are right-censored.
 
 ### Test suite
 
-`HYPOTHESIS_PROFILE=ci pytest -q`: **66 passed in 84 s** (single core). The suite covers the kernel
+`HYPOTHESIS_PROFILE=ci pytest -q`: **99 passed in 65–95 s** (single core; Hypothesis 6.170.0 and 6.170.2). The suite covers the kernel
 (determinism, also across `PYTHONHASHSEED` values; delay bounds before and after GST; loss;
 duplication; reordering; partitions; slow links; crash semantics; forgery rejection), deterministic
 protocol scenarios, six Hypothesis property tests (Raft n = 3, 5; BFT n = 4, 7, equivocation,
-and more than `f` silent nodes, which must still be safe), the eight mutation tests, small seed
+and more than `f` silent nodes, which must still be safe), the eight mutation-search tests, 33 replay tests of recorded counterexamples, small seed
 sweeps on seeds disjoint from the README sweep, and the CLI.
 
 ## Limitations

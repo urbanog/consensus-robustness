@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Urban Ogrinec" }]
 requires-python = ">=3.11"
-dependencies = ["hypothesis>=6.100"]
+dependencies = ["hypothesis>=6.170,<7"]  # tested with 6.170.0 and 6.170.2
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",

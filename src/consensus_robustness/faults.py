@@ -122,6 +122,14 @@ def scenarios(
     allow_leader_crashes: bool = True,
     max_gst: int = 1500,
     max_partitions: int = 2,
+    max_slow_links: int = 6,
+    min_byzantine: int = 0,
+    min_leader_crashes: int = 0,
+    max_leader_crashes: int = 4,
+    max_leader_crash_delay: int = 100,
+    leader_down_range: tuple[int, int] = (1, 600),
+    allow_permanent_leader_crash: bool = True,
+    loss_rates: tuple[float, ...] = (0.0, 0.1, 0.3),
 ) -> Scenario:
     """Hypothesis strategy for scenarios.
 
@@ -146,7 +154,7 @@ def scenarios(
     slow = draw(
         st.lists(
             st.tuples(node, node, st.integers(1, 1000)).filter(lambda t: t[0] != t[1]).map(lambda t: SlowLink(*t)),
-            max_size=6,
+            max_size=max_slow_links,
             unique_by=lambda s: (s.src, s.dst),
         )
     )
@@ -155,7 +163,7 @@ def scenarios(
         delta=10,
         pre_gst_max_delay=draw(st.sampled_from([300, 100, 30])),
         delay_dist=draw(st.sampled_from(DELAY_DISTS)),
-        loss_rate=draw(st.sampled_from([0.0, 0.1, 0.3])) if allow_loss else 0.0,
+        loss_rate=draw(st.sampled_from(loss_rates)) if allow_loss else 0.0,
         dup_rate=draw(st.sampled_from([0.0, 0.2])),
         partitions=tuple(partitions),
         slow_links=tuple(slow),
@@ -163,7 +171,7 @@ def scenarios(
     byz: tuple[Byzantine, ...] = ()
     if protocol == "bft":
         kmax = f if byzantine is None else byzantine
-        ids = draw(st.lists(node, max_size=kmax, unique=True))
+        ids = draw(st.lists(node, min_size=min(min_byzantine, kmax), max_size=kmax, unique=True))
         byz = tuple(Byzantine(i, draw(st.sampled_from(behaviours))) for i in sorted(ids))
     byz_ids = {b.node for b in byz}
     honest = [i for i in range(n) if i not in byz_ids]
@@ -184,8 +192,15 @@ def scenarios(
     if protocol == "raft" and allow_leader_crashes:
         lc = draw(
             st.lists(
-                st.tuples(st.integers(1, 6), st.integers(0, 100), st.one_of(st.none(), st.integers(1, 600))),
-                max_size=4,
+                st.tuples(
+                    st.integers(1, max(6, max_leader_crashes + 2)),
+                    st.integers(0, max_leader_crash_delay),
+                    st.integers(*leader_down_range)
+                    if not allow_permanent_leader_crash
+                    else st.one_of(st.none(), st.integers(*leader_down_range)),
+                ),
+                min_size=min_leader_crashes,
+                max_size=max_leader_crashes,
                 unique_by=lambda t: t[0],
             )
         )

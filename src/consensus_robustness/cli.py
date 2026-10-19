@@ -134,7 +134,9 @@ def _cmd_sweep(a: argparse.Namespace) -> int:
 
 
 def _cmd_mutants(a: argparse.Namespace) -> int:
-    from .mutation import MUTANTS, find_counterexample, findings_markdown
+    import hypothesis
+
+    from .mutation import MUTANTS, find_counterexample, findings_markdown, measure_search
 
     chosen = [m for m in MUTANTS if not a.only or m.name in a.only]
     findings = []
@@ -147,18 +149,24 @@ def _cmd_mutants(a: argparse.Namespace) -> int:
             print(f"{spec.name:<22} NOT FOUND after {fd.predicate_calls} runs ({dt:.1f}s)")
         else:
             print(
-                f"{spec.name:<22} {fd.result.violations[0].prop:<20} first failure after {fd.examples_until_failure} "
-                f"examples, {fd.predicate_calls} runs incl. shrinking ({dt:.1f}s)"
+                f"{spec.name:<22} {fd.result.violations[0].prop:<20} seed {fd.seed}: first failure after "
+                f"{fd.examples_until_failure} examples, {fd.predicate_calls} runs incl. shrinking ({dt:.1f}s)"
             )
             if a.show:
                 print(fd.result.counterexample(full=a.full))
                 print()
-    generic = None
-    if a.write and any(f.spec.mutant == "commit_old_term" for f in findings):
-        spec = next(f.spec for f in findings if f.spec.mutant == "commit_old_term")
-        generic = find_counterexample(spec, max_examples=1000, strategy_kwargs={"allow_leader_crashes": False})
+    measurements: dict[str, tuple[int, list[int | None]]] = {}
+    if a.measure:
+        for spec in chosen:
+            xs = measure_search(spec, a.measure, spec.budget, workers=a.workers)
+            measurements[spec.name] = (spec.budget, xs)
+            print(f"measure {spec.name:<22} budget {spec.budget}: {xs}", flush=True)
+            if a.baseline and spec.baseline_kwargs is not None:
+                ys = measure_search(spec, a.measure, a.baseline, spec.baseline_kwargs, workers=a.workers)
+                measurements[spec.name + ":baseline"] = (a.baseline, ys)
+                print(f"measure {spec.name:<22} baseline, budget {a.baseline}: {ys}", flush=True)
     if a.write:
-        Path(a.write).write_text(findings_markdown(findings, generic) + "\n")
+        Path(a.write).write_text(findings_markdown(findings, measurements, hypothesis.__version__) + "\n")
         print(f"wrote {a.write}")
     return 0 if all(f.result is not None for f in findings) else 1
 
@@ -223,6 +231,9 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--show", action="store_true", help="print the shrunk counterexamples")
     m.add_argument("--full", action="store_true", help="with --show: every event")
     m.add_argument("--write", default="", help="write a findings markdown file")
+    m.add_argument("--measure", type=int, default=0, help="also measure search reliability over N seeds")
+    m.add_argument("--baseline", type=int, default=0, help="with --measure: also measure the untargeted strategy")
+    m.add_argument("--workers", type=int, default=1)
     m.set_defaults(func=_cmd_mutants)
 
     e = sub.add_parser("experiment", help="liveness vs message loss and silent validators")

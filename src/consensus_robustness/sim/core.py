@@ -104,6 +104,7 @@ class Simulator:
         self.nodes: list[Node] = []
         self.up: list[bool] = []
         self._epoch: list[int] = []
+        self._booted: list[bool] = []  # has on_start run? (a node may crash before booting)
         self._queue: list[tuple[int, int, str, Any]] = []
         self._seq = 0
         self._hash = hashlib.sha256()
@@ -132,6 +133,7 @@ class Simulator:
         self.nodes.append(node)
         self.up.append(True)
         self._epoch.append(0)
+        self._booted.append(False)
 
     def add_observer(self, obs: Observer) -> None:
         self.observers.append(obs)
@@ -248,11 +250,17 @@ class Simulator:
             node = payload
             if not self.up[node]:
                 self.up[node] = True
-                self._log("restart", node, "RESTART (persistent state kept, volatile state lost)")
-                self.nodes[node].on_restart()
+                if self._booted[node]:
+                    self._log("restart", node, "RESTART (persistent state kept, volatile state lost)")
+                    self.nodes[node].on_restart()
+                else:  # crashed before it ever booted: this is its first start
+                    self._booted[node] = True
+                    self._log("restart", node, "RESTART (first boot)")
+                    self.nodes[node].on_start()
         elif kind == "start":
             node = payload
             if self.up[node]:
+                self._booted[node] = True
                 self.nodes[node].on_start()
         else:  # pragma: no cover
             raise ValueError(kind)

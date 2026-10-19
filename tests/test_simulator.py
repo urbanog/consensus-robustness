@@ -130,3 +130,23 @@ def test_invalid_scenarios_rejected() -> None:
         Scenario(protocol="bft", n=4, byzantine=(Byzantine(9, "silent"),))
     with pytest.raises(ValueError):
         NetworkConfig(min_delay=20, delta=10)
+
+
+def test_trace_hash_independent_of_pythonhashseed() -> None:
+    """Determinism across interpreter processes with different string-hash randomisation."""
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "from consensus_robustness.faults import random_scenario\n"
+        "from consensus_robustness import run\n"
+        "print(run(random_scenario('bft', 4, 11)).trace_hash, run(random_scenario('raft', 5, 11)).trace_hash)\n"
+    )
+    outs = set()
+    for hs in ("0", "1", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": hs}
+        outs.add(
+            subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
+        )
+    assert len(outs) == 1

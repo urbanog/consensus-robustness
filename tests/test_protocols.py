@@ -116,3 +116,13 @@ def test_log_matching_helper() -> None:
     assert _log_matching_error(a, [Entry(1, "x"), Entry(2, "y"), Entry(3, "z")]) is None
     assert _log_matching_error(a, [Entry(1, "x"), Entry(3, "q")]) is None
     assert _log_matching_error(a, [Entry(1, "w"), Entry(2, "y")]) is not None
+
+
+@pytest.mark.parametrize("protocol,n", [("bft", 4), ("raft", 3)])
+def test_node_crashed_before_boot_joins_after_others_finished(protocol: str, n: int) -> None:
+    # Regression test (found by the 5000-seed sweep, BFT seed 898): a node that crashes at t=0
+    # never ran on_start; when it restarts after everyone else has finished it must still boot,
+    # announce itself and catch up.
+    sc = Scenario(protocol=protocol, n=n, seed=898, crashes=(Crash(0, 0, 1500),))
+    r = run(sc)
+    assert r.safe and r.finished and r.liveness_ok

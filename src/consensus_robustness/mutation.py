@@ -207,18 +207,32 @@ def findings_markdown(findings: list[Finding], generic_commit_old_term: Finding 
             f"| {fault_count(fd.first_failing)} -> {fault_count(fd.result.scenario)} "
             f"| {first_events} -> {fd.result.stats['events']} |"
         )
-    out.append("")
+    out += [
+        "",
+        "Columns: *faults* counts fault ingredients (crashes, leader crashes, Byzantine nodes,",
+        "partitions, slow links, loss > 0, duplication > 0). Hypothesis minimises its internal choice",
+        "sequence (shortlex order), not these metrics, so a shrunk example is usually but not always",
+        "smaller in both (e.g. `raft-small-quorum` trades a 1500-unit pre-GST period for a 129-unit one",
+        "with 30% loss).",
+        "",
+        "**Hypothesis vs. uniform random sweeps.** In the 2000-seed random sweeps",
+        "(`docs/sweep_results.md`) the generic random generator caught five of the seven mutant",
+        "kinds but **not** `bft-no-lock` and **not** `raft-commit-old-term` (0 violations each).",
+        "Hypothesis found `bft-no-lock` after 218 examples; a plausible reason is that its generator",
+        "over-samples boundary values (GST = 0, empty sets, short partitions), which favour round changes.",
+        "",
+    ]
     if generic_commit_old_term is not None:
         g = generic_commit_old_term
         status = "found it" if g.result is not None else f"did **not** find a violation in {g.predicate_calls} examples"
         out += [
-            "Note on `raft-commit-old-term`: the generic Raft fault generator (timed crashes, partitions,",
-            f"loss, long pre-GST periods) {status}; a random sweep of 2000 seeds with the generic",
-            "generator found none either (see README). The bug needs a specific *sequence of leader",
-            "changes*, so the targeted search above uses leader-triggered crashes",
-            "(`LeaderCrash`: the k-th elected leader crashes shortly after its election) and GST <= 200.",
-            "Lesson: coverage of deep protocol states depends on the fault vocabulary, not only on the",
-            "number of random runs.",
+            "**`raft-commit-old-term` (the Figure 8 bug).** Hypothesis with the generic Raft fault",
+            f"vocabulary (timed crashes, partitions, loss, pre-GST periods up to 1500) {status}.",
+            "The bug needs a specific *sequence of leader changes*, each new leader replicating an",
+            "old-term entry only partway. The targeted search below adds leader-triggered crashes",
+            "(`LeaderCrash`: the k-th elected leader crashes shortly after its election) and restricts",
+            "GST to at most 200 so that elections succeed quickly. Lesson: coverage of deep protocol",
+            "states depends on the fault vocabulary, not only on the number of random runs.",
             "",
         ]
     for fd in findings:

@@ -101,13 +101,17 @@ def _cmd_run(a: argparse.Namespace) -> int:
         if a.trace or a.full_trace:
             print(r.counterexample(full=a.full_trace))
         print(f"safety: {'OK' if r.safe else 'VIOLATED'}" + ("" if r.safe else f" - {r.violations[0]}"))
+        if not r.safe:
+            status = f"not evaluated (run stopped at the safety violation, t={r.end_time})"
+            print(f"liveness: {status}")
         status = f"finished at t={r.finish_time}" if r.finished else f"NOT finished by t={r.end_time}"
         expect = (
             f"guaranteed by t={sc.deadline()}: {'OK' if r.liveness_ok else 'VIOLATED'}"
             if sc.liveness_expected()
             else "not guaranteed for this schedule"
         )
-        print(f"liveness: {status}; {expect}")
+        if r.safe:
+            print(f"liveness: {status}; {expect}")
         print(
             f"messages: {r.stats['sent']} sent, {r.stats['delivered']} delivered, "
             f"{r.stats['dropped_loss']} lost, {r.stats['dropped_partition']} partitioned, "

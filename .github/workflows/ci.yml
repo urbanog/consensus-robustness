@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: |
+          ruff check src tests scripts
+          ruff format --check src tests scripts
+      - name: Test (Hypothesis "ci" profile, derandomised)
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: pytest -q --durations=10
+      - name: Smoke-test the CLI
+        run: |
+          python -m consensus_robustness run --protocol bft --n 4 --byzantine 1 --seed 7 --gst 300 --loss 0.1
+          python -m consensus_robustness run --protocol raft --n 5 --seed 3 --crash 0@200:600 --partition 0-400:0,1 --gst 400

@@ -163,9 +163,10 @@ Liveness is required only for schedules within the model (at most `f` nodes faul
 | BFT, n = 4 (f = 1) | 5000 | **0** | 2990 / 2990 | 0, 387, 828 |
 | BFT, n = 7 (f = 2) | 2000 | **0** | 1045 / 1045 | 0, 413, 831 |
 
-(Times are in simulated units with Δ = 10. A median of 0 means that most runs finished before GST,
-while the network was still adversarial.) In total, about 35 million simulated events; the full script
-(`scripts/run_sweeps.py`, including the mutant sweeps) took 328 s on 2 cores. Details: [`docs/sweep_results.md`](docs/sweep_results.md).
+(Times are in simulated units. Each seed draws its post-GST delay bound Δ from {5, 10, 20}. A median
+of 0 means that most runs finished before GST, while the network was still adversarial.) The honest
+sweeps above simulated about 35 million events; with the mutant sweeps the full script
+(`scripts/run_sweeps.py`) simulated about 43 million events and took 328 s on 2 cores. Details: [`docs/sweep_results.md`](docs/sweep_results.md).
 
 **The sweep found a real bug, in the simulator rather than the protocols.** In the first run of this
 sweep, 2 of the 2990 BFT runs with a liveness guarantee did not finish. Cause: a node scheduled to

@@ -125,10 +125,21 @@ protocol stays live with `f` silent nodes but loses agreement under equivocation
 
 ## 4. FLP impossibility and how GST sidesteps it
 
-**Theorem 6 (Fischer–Lynch–Paterson 1985).** In an asynchronous message-passing system — reliable
-channels with finite but unbounded delays, no clocks — there is no *deterministic* protocol that
-solves consensus (agreement, non-triviality: both decisions 0 and 1 are reachable, and termination
-of every non-faulty process in every admissible run) if even **one** process may crash.
+**Theorem 6 (Fischer–Lynch–Paterson 1985).** No *deterministic* protocol solves consensus in an
+asynchronous message-passing system — reliable channels with finite but unbounded delays, no
+clocks — if even **one** process may crash. Precisely: let a deterministic protocol for `n ≥ 2`
+processes with binary inputs satisfy
+
+* **agreement**: no reachable configuration contains two different decision values, and
+* **non-triviality**: both 0 and 1 are the decision value of some reachable configuration (a much
+  weaker requirement than unanimity validity).
+
+Then some *admissible* run — at most one process crashes, every non-faulty process takes infinitely
+many steps, and every message sent to a non-faulty process is eventually delivered — is not a
+deciding run: **no process ever decides**. So the protocol can guarantee agreement and validity, but
+not termination. The theorem is strong in three ways: termination is weakened to "some process
+decides", validity to non-triviality, and the run constructed in the proof has no crash at all (the
+mere *possibility* of one crash is what forces indecision).
 
 *Idea of the proof.* Call a configuration *bivalent* if both decisions are still reachable from it.
 (i) Some initial configuration is bivalent (change inputs one process at a time; two adjacent
@@ -160,17 +171,58 @@ detectors (Chandra–Toueg 1996).
 * **Log matching**: a leader creates at most one entry per index in its term and never rewrites its
   own log; a follower accepts entries only if its entry at `prevLogIndex` has term `prevLogTerm`;
   by induction, equal `(index, term)` implies equal prefixes.
-* **Leader completeness**: if an entry is committed in term `t`, it is stored on a majority. A
-  candidate of term `T > t` needs votes from a majority, so some voter stores the entry; that voter
-  grants its vote only if the candidate's log is at least as up-to-date (last term larger, or equal
-  and at least as long). An induction over terms then shows the candidate's log contains the entry.
-  Mutant `no_log_check` removes exactly this step.
+* **Leader completeness**: if an entry is committed in term `T`, every leader of a term `U > T`
+  stores it. The proof is spelled out below. Mutant `no_log_check` removes exactly the up-to-date
+  check it relies on.
 * **Commit rule (§5.4.2, Figure 8)**: a leader may only count replicas for entries *of its current
   term*; earlier entries are committed indirectly. Counting replicas of an old-term entry is unsafe:
   that entry can be on a majority and still be overwritten by a later leader whose last entry has a
   newer term. Mutant `commit_old_term` exhibits this.
 * **State-machine safety** follows: if a node applies entry `e` at index `i`, every later leader
   holds `e` at `i`, so no other entry is ever committed at `i`.
+
+**Theorem 7 (leader completeness, [OO14] §5.4.3).** If the leader of term `T` commits an entry `e`
+at index `i`, then the leader of every term `U > T` has `e` at index `i` in its log.
+
+An entry is identified by its `(index, term)`; "has `e`" means having an entry with that index and
+term. By the commit rule, the leader of term `T` commits `e` directly only if `e` has term `T` and
+the leader has learned that a majority of nodes store `e` (each acknowledged an `AppendEntries` of
+term `T` containing it). Entries committed indirectly precede such an `e` in the leader's log and,
+by log matching, are covered by the same statement. Leaders never delete or overwrite entries in
+their own logs, and a follower deletes an entry only when it conflicts with one sent by a leader
+(same index, different term; Figure 2, rule 3).
+
+*Proof.* Suppose the claim fails and let `U > T` be the **smallest** term whose leader `L_U` does not
+have `e`. Since `L_U` never removes entries, it already lacked `e` when it was elected.
+
+1. *A common node.* A majority stored `e` in term `T`, and `L_U` was elected by the votes of a
+   majority in term `U`. Two majorities intersect (Corollary 3), so some node `v` did both. Its vote
+   was cast before `L_U` became leader, hence before any `AppendEntries` of term `U` or higher
+   reached `v` (one of term above `U` would have raised `v`'s term past `U` and prevented the vote).
+2. *`v` stored `e` before voting.* If `v` had voted in term `U` first, its `currentTerm` would have
+   been at least `U > T`, and it would have rejected the `AppendEntries` of term `T` that carried
+   `e`. So `v` stored `e` first.
+3. *`v` still had `e` when it voted.* After storing `e`, `v` rejects messages of terms below `T`.
+   Its log can therefore change only through `AppendEntries` from the leaders of terms `t` with
+   `T ≤ t < U`. Each of them has `e` at `i`: the leader of `T` by hypothesis, the others by the
+   minimality of `U`. By log matching, each such leader's log agrees with `v`'s log at every index
+   `≤ i` (both contain `e` at `i`), so none of their entries conflicts with `v`'s entries at indices
+   `≤ i`, and `v` never deletes `e`.
+4. *The vote condition.* `v` granted its vote, so `L_U`'s log was at least as up-to-date as `v`'s:
+   either `lastTerm(L_U) > lastTerm(v)`, or the last terms are equal and `L_U`'s log is at least as
+   long.
+5. *Equal last terms.* Let the common last term be `t'`, and let `v`'s last entry be at index `j`,
+   with `L_U`'s last entry at index `k ≥ j`. Both entries were created by the unique leader `L_{t'}`
+   of term `t'` (election safety), which never deletes its own entries, so `L_{t'}` has both. By log
+   matching at `(k, t')`, `L_U`'s log agrees with `L_{t'}`'s up to index `k ≥ j`, so `L_U` has
+   `(j, t')`. By log matching at `(j, t')`, `L_U`'s log then contains all of `v`'s log, including
+   `e`. Contradiction.
+6. *Larger last term.* Let `t' = lastTerm(L_U) > lastTerm(v)`. Since `v` has `e`, which has term `T`,
+   and terms never decrease along a log, `lastTerm(v) ≥ T`, so `t' > T`. Also `t' < U`, because
+   at its election `L_U` holds no entries of its own term `U`. The last entry of `L_U` was created by
+   the leader of term `t'`, which has `e` at `i` by the minimality of `U`. In that leader's log `e`
+   comes before the entry of term `t' > T`, so by log matching `L_U`'s log agrees with it up to and
+   including index `i`, and `L_U` has `e`. Contradiction. ∎
 
 ## References
 
